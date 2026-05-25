@@ -9,11 +9,12 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@clerk/expo';
+import { useAuth, useUser } from '@clerk/expo';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { signOut } = useAuth();
+  const { user } = useUser();
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [questionCount, setQuestionCount] = useState<number>(5);
@@ -48,8 +49,8 @@ export default function HomeScreen() {
         
         {/* HEADER */}
         <View style={styles.header}>
-          <Text style={styles.appTitle}>InterviewAI</Text>
-          <Text style={styles.appSubtitle}>Your AI interview coach</Text>
+          <Text style={styles.greeting}>Hey, {user?.firstName ?? 'there'} 👋</Text>
+          <Text style={styles.appSubtitle}>Ready to practice?</Text>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
@@ -193,15 +194,15 @@ const styles = StyleSheet.create({
     marginTop: 24,
     marginBottom: 24,
   },
-  appTitle: {
+  greeting: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 'bold',
+    marginBottom: 4,
   },
   appSubtitle: {
     color: '#8E8E93',
     fontSize: 14,
-    marginTop: 4,
   },
   motivationalCard: {
     backgroundColor: '#1C1C1E',
