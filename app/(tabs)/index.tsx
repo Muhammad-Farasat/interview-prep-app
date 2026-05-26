@@ -38,7 +38,7 @@ export default function HomeScreen() {
       pathname: '/interview/session',
       params: {
         field: selectedField,
-        totalQuestions: questionCount,
+        totalQuestions: String(questionCount),
       },
     });
   };

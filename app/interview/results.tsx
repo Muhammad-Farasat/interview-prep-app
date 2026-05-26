@@ -25,6 +25,8 @@ interface AnswerRecord {
   pace: string;
   wordsPerMinute: number;
   improvements?: string[];
+  isFollowUp?: boolean;
+  parentQuestion?: string;
 }
 
 export default function ResultsScreen() {
@@ -242,7 +244,14 @@ export default function ResultsScreen() {
             
             {/* Top row */}
             <View style={styles.questionCardHeader}>
-              <Text style={styles.qIndex}>Q{idx + 1}</Text>
+              <View style={styles.qIndexRow}>
+                <Text style={styles.qIndex}>Q{idx + 1}</Text>
+                {ans.isFollowUp && (
+                  <View style={styles.followUpPill}>
+                    <Text style={styles.followUpPillText}>Follow-up</Text>
+                  </View>
+                )}
+              </View>
               <View style={[styles.qScorePill, { backgroundColor: getColor(ans.score) }]}>
                 <Text style={styles.qScoreText}>{ans.score}</Text>
               </View>
@@ -440,6 +449,24 @@ const styles = StyleSheet.create({
     color: '#7F77DD',
     fontSize: 11,
     fontWeight: 'bold',
+  },
+  qIndexRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  followUpPill: {
+    backgroundColor: 'rgba(255,152,0,0.15)',
+    borderWidth: 1,
+    borderColor: '#FF9800',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  followUpPillText: {
+    color: '#FF9800',
+    fontSize: 10,
+    fontWeight: '600',
   },
   qScorePill: {
     borderRadius: 12,

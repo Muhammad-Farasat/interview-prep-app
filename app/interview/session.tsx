@@ -10,10 +10,10 @@ import {
   Animated,
 } from 'react-native';
 import { Audio } from 'expo-av';
-import * as Speech from 'expo-speech';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { transcribeAudio } from '../../services/whisper';
 import { analyzeAnswer } from '../../services/groq';
+import { generateSpeech } from '../../services/elevenlabs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,8 +30,10 @@ interface AnswerRecord {
   improvements: string[];
   fillerCount: number;
   fillerWords: string[];
-  pace: 'too slow' | 'good' | 'too fast';
+  pace: string;
   wordsPerMinute: number;
+  isFollowUp: boolean;
+  parentQuestion?: string;
 }
 
 // ─── Waveform component ───────────────────────────────────────────────────────
@@ -130,6 +132,9 @@ export default function SessionScreen() {
   const [isMuted, setIsMuted] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [isFollowUp, setIsFollowUp] = useState(false);
+  const [followUpCount, setFollowUpCount] = useState(0);
+  const [currentMainQuestion, setCurrentMainQuestion] = useState('');
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -139,11 +144,19 @@ export default function SessionScreen() {
   const answersRef = useRef<AnswerRecord[]>([]);
   const questionsRef = useRef<string[]>([]);
   const isMutedRef = useRef(false);
+  const isFollowUpRef = useRef(false);
+  const followUpCountRef = useRef(0);
+  const currentMainQuestionRef = useRef('');
+  const currentIdxRef = useRef(0);
 
   // Keep refs in sync so callbacks always see latest values
   useEffect(() => { answersRef.current = answers; }, [answers]);
   useEffect(() => { questionsRef.current = questions; }, [questions]);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { isFollowUpRef.current = isFollowUp; }, [isFollowUp]);
+  useEffect(() => { followUpCountRef.current = followUpCount; }, [followUpCount]);
+  useEffect(() => { currentMainQuestionRef.current = currentMainQuestion; }, [currentMainQuestion]);
+  useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
 
   // ── Countdown animation ────────────────────────────────────────────────────
   const countdownScale = useRef(new Animated.Value(1)).current;
@@ -184,13 +197,14 @@ export default function SessionScreen() {
         Alert.alert('Permission Required', 'Microphone access is needed to record your answers.');
       }
       await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
+        allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
       });
     })();
 
     return () => {
-      Speech.stop();
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (autoStopRef.current) clearTimeout(autoStopRef.current);
       recordingRef.current?.stopAndUnloadAsync();
@@ -215,7 +229,6 @@ export default function SessionScreen() {
       { text: 'No', style: 'cancel' },
       {
         text: 'Yes', onPress: () => {
-          Speech.stop();
           router.replace('/(tabs)');
         }
       },
@@ -243,23 +256,80 @@ export default function SessionScreen() {
     setTimeout(tick, 1000);
   }, []);
 
-  const speakText = useCallback((text: string) => {
+  const speakText = useCallback(async (text: string) => {
     if (isMutedRef.current) {
       startCountdown();
       return;
     }
-    Speech.stop();
-    Speech.speak(text, {
-      language: 'en-US',
-      pitch: 1.0,
-      rate: 0.85,
-      onStart: () => setScreenState('speaking'),
-      onDone: () => startCountdown(),
-      onStopped: () => startCountdown(),
-    });
+    try {
+      setScreenState('speaking');
+      const fileUri = await generateSpeech(text);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: fileUri },
+        { shouldPlay: true }
+      );
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync();
+          startCountdown();
+        }
+      });
+    } catch (err) {
+      console.error('TTS error:', err);
+      // Fallback: skip speech and go straight to countdown
+      startCountdown();
+    }
   }, [startCountdown]);
 
   // ── Question generation ────────────────────────────────────────────────────
+
+  const generateFollowUp = async (
+    question: string,
+    transcript: string,
+    score: number
+  ): Promise<string | null> => {
+    try {
+      // Determine allowed follow-ups based on score
+      let allowedFollowUps = 0;
+      if (score < 50) allowedFollowUps = 2;
+      else if (score < 75) allowedFollowUps = 1;
+      else allowedFollowUps = 0;
+
+      // Already hit the limit for this question
+      if (followUpCountRef.current >= allowedFollowUps) return null;
+
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.EXPO_PUBLIC_GROQ_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 150,
+          temperature: 0.7,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a technical interviewer. Based on the candidate's answer, generate ONE sharp follow-up question that digs deeper into a weak or missing point in their answer.\nRules:\n- Maximum 2 sentences\n- Be specific to what they said\n- Challenge them on something they glossed over\n- Sound like a real interviewer\n- Return ONLY the question, nothing else`,
+            },
+            {
+              role: 'user',
+              content: `Original question: ${question}\nCandidate answer: ${transcript}\nScore: ${score}/100\nGenerate a follow-up question that probes the weakest part of their answer.`,
+            },
+          ],
+        }),
+      });
+
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      return data.choices[0].message.content.trim();
+    } catch (err) {
+      console.error('Follow-up generation error:', err);
+      return null;
+    }
+  };
 
   const generateQuestions = async () => {
     setScreenState('generating');
@@ -349,7 +419,10 @@ export default function SessionScreen() {
 
   const startRecording = async () => {
     try {
-      Speech.stop();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
       const recording = new Audio.Recording();
       await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await recording.startAsync();
@@ -375,6 +448,10 @@ export default function SessionScreen() {
 
   const stopRecording = async () => {
     try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
@@ -408,7 +485,7 @@ export default function SessionScreen() {
 
   const processAnswer = async (transcript: string, durationSeconds: number) => {
     try {
-      const idx = currentIdx;
+      const idx = currentIdxRef.current;
       const question = questionsRef.current[idx];
       const feedbackObj = await analyzeAnswer(question, transcript, durationSeconds);
 
@@ -425,22 +502,64 @@ export default function SessionScreen() {
         fillerWords: feedbackObj.fillerWords,
         pace: feedbackObj.pace,
         wordsPerMinute: feedbackObj.wordsPerMinute,
+        isFollowUp: isFollowUpRef.current,
+        parentQuestion: isFollowUpRef.current ? currentMainQuestionRef.current : undefined,
       };
 
       const updatedAnswers = [...answersRef.current, record];
       setAnswers(updatedAnswers);
       answersRef.current = updatedAnswers;
 
-      const nextIdx = idx + 1;
-      if (nextIdx < questionsRef.current.length) {
-        startQuestion(nextIdx);
+      // Try to generate a follow-up question
+      const followUpQuestion = await generateFollowUp(question, transcript, feedbackObj.score);
+
+      if (followUpQuestion) {
+        // Track follow-up state
+        const newFollowUpCount = followUpCountRef.current + 1;
+        setFollowUpCount(newFollowUpCount);
+        followUpCountRef.current = newFollowUpCount;
+
+        // Save the main question if this is the first follow-up
+        if (!isFollowUpRef.current) {
+          setCurrentMainQuestion(question);
+          currentMainQuestionRef.current = question;
+        }
+        setIsFollowUp(true);
+        isFollowUpRef.current = true;
+
+        // Insert follow-up right after current position
+        const newQuestions = [...questionsRef.current];
+        newQuestions.splice(idx + 1, 0, followUpQuestion);
+        setQuestions(newQuestions);
+        questionsRef.current = newQuestions;
+
+        // Move to the follow-up question
+        const nextIdx = idx + 1;
+        setCurrentIdx(nextIdx);
+        currentIdxRef.current = nextIdx;
+        await speakText(followUpQuestion);
       } else {
-        setScreenState('finished');
-        navigateToResults(updatedAnswers);
+        // No follow-up — reset follow-up state and advance to next main question
+        setIsFollowUp(false);
+        isFollowUpRef.current = false;
+        setFollowUpCount(0);
+        followUpCountRef.current = 0;
+        setCurrentMainQuestion('');
+        currentMainQuestionRef.current = '';
+
+        const nextIdx = idx + 1;
+        if (nextIdx >= questionsRef.current.length) {
+          setScreenState('finished');
+          navigateToResults(updatedAnswers);
+        } else {
+          setCurrentIdx(nextIdx);
+          currentIdxRef.current = nextIdx;
+          await speakText(questionsRef.current[nextIdx]);
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      Alert.alert('Processing Error', 'Could not analyze your answer. Please try again.');
+      Alert.alert('Processing Error', err.message ?? 'Something went wrong. Please try again.');
       setScreenState('recording');
     }
   };
@@ -448,7 +567,6 @@ export default function SessionScreen() {
   // ── Navigate to results ────────────────────────────────────────────────────
 
   const navigateToResults = (finalAnswers: AnswerRecord[]) => {
-    Speech.stop();
     router.replace({
       pathname: '/interview/results',
       params: {
@@ -478,7 +596,9 @@ export default function SessionScreen() {
     if (screenState === 'speaking') {
       return (
         <View style={styles.centeredSection}>
-          <Text style={styles.interviewerLabel}>Interviewer</Text>
+          <Text style={[styles.interviewerLabel, isFollowUp && styles.followUpLabel]}>
+            {isFollowUp ? 'Follow-up' : 'Interviewer'}
+          </Text>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>AI</Text>
           </View>
@@ -491,7 +611,9 @@ export default function SessionScreen() {
     if (screenState === 'countdown') {
       return (
         <View style={styles.centeredSection}>
-          <Text style={styles.interviewerLabel}>Interviewer</Text>
+          <Text style={[styles.interviewerLabel, isFollowUp && styles.followUpLabel]}>
+            {isFollowUp ? 'Follow-up' : 'Interviewer'}
+          </Text>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>AI</Text>
           </View>
@@ -550,18 +672,26 @@ export default function SessionScreen() {
 
   const renderDots = () => {
     if (isGenerating || questions.length === 0) return null;
+    // Only show dots for the original totalQuestions count to keep it clean
+    const dotCount = Math.max(questions.length, totalQuestions);
     return (
       <View style={styles.dotsRow}>
-        {questions.map((_, i) => {
+        {Array.from({ length: dotCount }).map((_, i) => {
           const isCompleted = i < currentIdx;
           const isCurrent = i === currentIdx;
+          // Follow-up questions are inserted after their parent — mark them amber
+          const isFollowUpDot = i < questions.length && i > 0 &&
+            answersRef.current[i - 1]?.isFollowUp === false &&
+            answersRef.current[i]?.isFollowUp === true;
           return (
             <View
               key={i}
               style={[
                 styles.dot,
                 isCompleted && styles.dotCompleted,
+                isCompleted && isFollowUpDot && styles.dotFollowUp,
                 isCurrent && styles.dotCurrent,
+                isCurrent && isFollowUp && styles.dotCurrentFollowUp,
               ]}
             />
           );
@@ -584,15 +714,14 @@ export default function SessionScreen() {
         <Text style={styles.topBarTitle}>
           {isGenerating
             ? 'Setting up'
-            : `Question ${currentIdx + 1} of ${questions.length}`}
+            : isFollowUp
+              ? `Follow-up ${followUpCount}`
+              : `Question ${currentIdx + 1} of ${totalQuestions}`}
         </Text>
 
         <TouchableOpacity
           style={styles.muteButton}
-          onPress={() => {
-            if (!isMuted) Speech.stop();
-            setIsMuted(prev => !prev);
-          }}
+          onPress={() => setIsMuted(prev => !prev)}
         >
           <Text style={styles.muteEmoji}>{isMuted ? '🔇' : '🔊'}</Text>
         </TouchableOpacity>
@@ -782,5 +911,17 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     backgroundColor: '#FFFFFF',
+  },
+  dotFollowUp: {
+    backgroundColor: '#FF9800',
+  },
+  dotCurrentFollowUp: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FF9800',
+  },
+  followUpLabel: {
+    color: '#FF9800',
   },
 });

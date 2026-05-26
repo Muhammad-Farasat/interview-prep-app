@@ -29,12 +29,6 @@
       "expo-router",
       "expo-dev-client",
       [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow InterviewAI to access your camera."
-        }
-      ],
-      [
         "expo-av",
         {
           "microphonePermission": "Allow InterviewAI to access your microphone."

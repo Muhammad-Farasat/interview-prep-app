@@ -64,7 +64,7 @@ function BarChart({
   if (data.length === 0) return null;
 
   const maxVal = 100; // scores are 0-100
-  const barWidth = Math.max(12, Math.floor((CHART_WIDTH - data.length * 6) / data.length));
+  const barWidth = Math.max(8, Math.floor((CHART_WIDTH - 28 - data.length * 8) / data.length));
   const chartHeight = 120;
 
   return (
@@ -137,6 +137,7 @@ const chartStyles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-around',
     height: '100%',
+    overflow: 'hidden',
   },
   barCol: {
     alignItems: 'center',
