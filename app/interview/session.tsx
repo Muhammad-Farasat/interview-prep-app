@@ -4,18 +4,18 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   Animated,
+  StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
+import { Feather } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { transcribeAudio } from '../../services/whisper';
 import { analyzeAnswer } from '../../services/groq';
 import { generateSpeech } from '../../services/elevenlabs';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ScreenState = 'generating' | 'speaking' | 'countdown' | 'recording' | 'processing' | 'finished';
 
@@ -36,8 +36,6 @@ interface AnswerRecord {
   parentQuestion?: string;
 }
 
-// ─── Waveform component ───────────────────────────────────────────────────────
-
 const BAR_COUNT = 20;
 
 function AIWaveform({ active }: { active: boolean }) {
@@ -49,9 +47,9 @@ function AIWaveform({ active }: { active: boolean }) {
   useEffect(() => {
     if (active) {
       loopsRef.current.forEach(l => l.stop());
-      loopsRef.current = anims.map((anim, i) => {
-        const duration = 300 + Math.random() * 300;
-        const maxHeight = 12 + Math.random() * 28;
+      loopsRef.current = anims.map((anim, index) => {
+        const duration = 240 + index * 20;
+        const maxHeight = 14 + Math.random() * 26;
         const loop = Animated.loop(
           Animated.sequence([
             Animated.timing(anim, {
@@ -60,38 +58,41 @@ function AIWaveform({ active }: { active: boolean }) {
               useNativeDriver: false,
             }),
             Animated.timing(anim, {
-              toValue: 4 + Math.random() * 8,
+              toValue: 4 + Math.random() * 10,
               duration,
               useNativeDriver: false,
             }),
           ])
         );
-        // Stagger start
-        setTimeout(() => loop.start(), i * 30);
+        setTimeout(() => loop.start(), index * 40);
         return loop;
       });
     } else {
       loopsRef.current.forEach(l => l.stop());
       anims.forEach(anim =>
-        Animated.timing(anim, { toValue: 4, duration: 200, useNativeDriver: false }).start()
+        Animated.timing(anim, {
+          toValue: 4,
+          duration: 180,
+          useNativeDriver: false,
+        }).start()
       );
     }
 
     return () => {
       loopsRef.current.forEach(l => l.stop());
     };
-  }, [active]);
+  }, [active, anims]);
 
   return (
     <View style={waveStyles.row}>
-      {anims.map((anim, i) => (
+      {anims.map((anim, index) => (
         <Animated.View
-          key={i}
+          key={index}
           style={[
             waveStyles.bar,
             {
               height: anim,
-              backgroundColor: active ? '#7F77DD' : '#2C2C2E',
+              backgroundColor: active ? '#52B788' : 'rgba(255,255,255,0.15)',
             },
           ]}
         />
@@ -105,26 +106,50 @@ const waveStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 48,
-    marginVertical: 16,
+    height: 52,
+    marginVertical: 18,
   },
   bar: {
-    width: 4,
-    borderRadius: 2,
+    width: 5,
+    borderRadius: 3,
     marginHorizontal: 2,
   },
 });
 
-// ─── Main component ───────────────────────────────────────────────────────────
+const generateQuestions = async (field: string, difficulty: string, count: number) => {
+  const prompt = `Generate exactly ${count} interview questions for a ${field} role at ${difficulty} difficulty level.
+Return ONLY a JSON array of strings. No numbering, no explanation, no markdown. Example: ["Question 1", "Question 2"]`;
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.EXPO_PUBLIC_GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama3-8b-8192',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Groq API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices[0].message.content.trim();
+  return JSON.parse(content) as string[];
+};
 
 export default function SessionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ field?: string; totalQuestions?: string }>();
+  const params = useLocalSearchParams<{ field?: string; totalQuestions?: string; difficulty?: string }>();
 
   const field = params.field || 'general';
+  const difficulty = params.difficulty || 'medium';
   const totalQuestions = parseInt(params.totalQuestions || '5', 10);
 
-  // ── State ──────────────────────────────────────────────────────────────────
   const [screenState, setScreenState] = useState<ScreenState>('generating');
   const [questions, setQuestions] = useState<string[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -136,7 +161,6 @@ export default function SessionScreen() {
   const [followUpCount, setFollowUpCount] = useState(0);
   const [currentMainQuestion, setCurrentMainQuestion] = useState('');
 
-  // ── Refs ───────────────────────────────────────────────────────────────────
   const recordingRef = useRef<Audio.Recording | null>(null);
   const startTimeRef = useRef<number>(0);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -149,16 +173,28 @@ export default function SessionScreen() {
   const currentMainQuestionRef = useRef('');
   const currentIdxRef = useRef(0);
 
-  // Keep refs in sync so callbacks always see latest values
-  useEffect(() => { answersRef.current = answers; }, [answers]);
-  useEffect(() => { questionsRef.current = questions; }, [questions]);
-  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
-  useEffect(() => { isFollowUpRef.current = isFollowUp; }, [isFollowUp]);
-  useEffect(() => { followUpCountRef.current = followUpCount; }, [followUpCount]);
-  useEffect(() => { currentMainQuestionRef.current = currentMainQuestion; }, [currentMainQuestion]);
-  useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+  useEffect(() => {
+    questionsRef.current = questions;
+  }, [questions]);
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+  useEffect(() => {
+    isFollowUpRef.current = isFollowUp;
+  }, [isFollowUp]);
+  useEffect(() => {
+    followUpCountRef.current = followUpCount;
+  }, [followUpCount]);
+  useEffect(() => {
+    currentMainQuestionRef.current = currentMainQuestion;
+  }, [currentMainQuestion]);
+  useEffect(() => {
+    currentIdxRef.current = currentIdx;
+  }, [currentIdx]);
 
-  // ── Countdown animation ────────────────────────────────────────────────────
   const countdownScale = useRef(new Animated.Value(1)).current;
 
   const pulseCountdown = () => {
@@ -170,7 +206,6 @@ export default function SessionScreen() {
     }).start();
   };
 
-  // ── Mic pulse animation ────────────────────────────────────────────────────
   const micPulse = useRef(new Animated.Value(1)).current;
   const micPulseLoop = useRef<Animated.CompositeAnimation | null>(null);
 
@@ -187,14 +222,13 @@ export default function SessionScreen() {
       micPulseLoop.current?.stop();
       micPulse.setValue(1);
     }
-  }, [screenState]);
+  }, [screenState, micPulse]);
 
-  // ── Permissions + audio mode on mount ─────────────────────────────────────
   useEffect(() => {
     (async () => {
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {
-        Alert.alert('Permission Required', 'Microphone access is needed to record your answers.');
+        Alert.alert('Permission required', 'Microphone access is needed to record your answer.');
       }
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
@@ -211,12 +245,39 @@ export default function SessionScreen() {
     };
   }, []);
 
-  // ── Generate questions on mount ────────────────────────────────────────────
   useEffect(() => {
-    generateQuestions();
-  }, []);
+    let cancelled = false;
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+    const loadQuestions = async () => {
+      setScreenState('generating');
+      try {
+        const generated = await generateQuestions(field, difficulty, totalQuestions);
+        if (cancelled) return;
+        if (!Array.isArray(generated) || generated.length === 0) {
+          throw new Error('Groq returned no questions');
+        }
+
+        const selected = generated.slice(0, totalQuestions);
+        setQuestions(selected);
+        questionsRef.current = selected;
+        startQuestion(0, selected);
+      } catch (err) {
+        console.error('Question generation error:', err);
+        if (cancelled) return;
+        Alert.alert(
+          'Question Generation Failed',
+          'Could not prepare your questions. Please try again.',
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+      }
+    };
+
+    loadQuestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -227,15 +288,9 @@ export default function SessionScreen() {
   const handleBack = () => {
     Alert.alert('End interview?', 'All progress will be lost.', [
       { text: 'No', style: 'cancel' },
-      {
-        text: 'Yes', onPress: () => {
-          router.replace('/(tabs)');
-        }
-      },
+      { text: 'Yes', onPress: () => router.replace('/(tabs)') },
     ]);
   };
-
-  // ── Speech ─────────────────────────────────────────────────────────────────
 
   const startCountdown = useCallback(() => {
     setScreenState('countdown');
@@ -264,10 +319,7 @@ export default function SessionScreen() {
     try {
       setScreenState('speaking');
       const fileUri = await generateSpeech(text);
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: fileUri },
-        { shouldPlay: true }
-      );
+      const { sound } = await Audio.Sound.createAsync({ uri: fileUri }, { shouldPlay: true });
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
           sound.unloadAsync();
@@ -276,26 +328,16 @@ export default function SessionScreen() {
       });
     } catch (err) {
       console.error('TTS error:', err);
-      // Fallback: skip speech and go straight to countdown
       startCountdown();
     }
   }, [startCountdown]);
 
-  // ── Question generation ────────────────────────────────────────────────────
-
-  const generateFollowUp = async (
-    question: string,
-    transcript: string,
-    score: number
-  ): Promise<string | null> => {
+  const generateFollowUp = async (question: string, transcript: string, score: number): Promise<string | null> => {
     try {
-      // Determine allowed follow-ups based on score
       let allowedFollowUps = 0;
       if (score < 50) allowedFollowUps = 2;
       else if (score < 75) allowedFollowUps = 1;
-      else allowedFollowUps = 0;
 
-      // Already hit the limit for this question
       if (followUpCountRef.current >= allowedFollowUps) return null;
 
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -311,18 +353,17 @@ export default function SessionScreen() {
           messages: [
             {
               role: 'system',
-              content: `You are a technical interviewer. Based on the candidate's answer, generate ONE sharp follow-up question that digs deeper into a weak or missing point in their answer.\nRules:\n- Maximum 2 sentences\n- Be specific to what they said\n- Challenge them on something they glossed over\n- Sound like a real interviewer\n- Return ONLY the question, nothing else`,
+              content: `You are a technical interviewer. Based on the candidate's answer, generate ONE sharp follow-up question that digs deeper into a weak or missing point in their answer. Rules: Maximum 2 sentences, be specific to what they said, challenge them on something they glossed over, sound like a real interviewer, return ONLY the question.`,
             },
             {
               role: 'user',
-              content: `Original question: ${question}\nCandidate answer: ${transcript}\nScore: ${score}/100\nGenerate a follow-up question that probes the weakest part of their answer.`,
+              content: `Original question: ${question}\nCandidate answer: ${transcript}\nScore: ${score}/100\nGenerate a probing follow-up question.`,
             },
           ],
         }),
       });
 
       if (!res.ok) return null;
-
       const data = await res.json();
       return data.choices[0].message.content.trim();
     } catch (err) {
@@ -331,91 +372,12 @@ export default function SessionScreen() {
     }
   };
 
-  const generateQuestions = async () => {
-    setScreenState('generating');
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.EXPO_PUBLIC_GROQ_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          max_tokens: 1000,
-          temperature: 0.5,
-          messages: [
-            {
-              role: 'system',
-              content: `You are a technical interviewer. Generate exactly ${totalQuestions} interview questions for a ${field} developer role. Return ONLY a valid JSON array of strings. No markdown, no numbering.`,
-            },
-            { role: 'user', content: `Generate ${totalQuestions} questions for ${field}` },
-          ],
-        }),
-      });
-
-      if (!res.ok) throw new Error(`Groq API error: ${res.status}`);
-
-      const data = await res.json();
-      const raw = data.choices[0].message.content
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .trim();
-      const parsed: string[] = JSON.parse(raw);
-      if (!parsed.length) throw new Error('Empty questions array');
-
-      setQuestions(parsed);
-      questionsRef.current = parsed;
-      startQuestion(0, parsed);
-    } catch (err) {
-      console.warn('Falling back to offline questions:', err);
-      const fallbacks: Record<string, string[]> = {
-        frontend: [
-          'What is the CSS box model and how does it work?',
-          'Explain how the virtual DOM works in React.',
-          'What are the differences between controlled and uncontrolled components?',
-          'How would you optimize a React app that renders 10,000 list items?',
-          'What is event delegation and why is it useful?',
-        ],
-        backend: [
-          'What is a REST API and how does it work?',
-          'Explain database indexing and when you would use it.',
-          'What are the key differences between SQL and NoSQL databases?',
-          'How does authentication work with JWT?',
-          'How would you design a rate limiting system for a public API?',
-        ],
-        mobile: [
-          'What is the difference between React Native and native development?',
-          'Explain how navigation works in React Native apps.',
-          'What are the performance best practices in React Native?',
-          'How would you handle offline support in a React Native app?',
-          'What is the difference between a FlatList and a ScrollView?',
-        ],
-        general: [
-          'Tell me about yourself and your experience as a developer.',
-          'What is your biggest strength as a developer?',
-          'Describe a challenging bug you faced and how you solved it.',
-          'How do you handle tight deadlines and pressure?',
-          'Where do you see yourself in 5 years?',
-        ],
-      };
-      const selected = (fallbacks[field.toLowerCase()] || fallbacks.general).slice(0, totalQuestions);
-      setQuestions(selected);
-      questionsRef.current = selected;
-      startQuestion(0, selected);
-    }
-  };
-
-  // ── Interview flow ─────────────────────────────────────────────────────────
-
   const startQuestion = (index: number, qs?: string[]) => {
     const questionList = qs ?? questionsRef.current;
     setCurrentIdx(index);
     setScreenState('speaking');
     speakText(questionList[index]);
   };
-
-  // ── Recording ──────────────────────────────────────────────────────────────
 
   const startRecording = async () => {
     try {
@@ -434,7 +396,6 @@ export default function SessionScreen() {
         setRecordingTime(prev => prev + 1);
       }, 1000);
 
-      // Auto-stop after 120 seconds
       autoStopRef.current = setTimeout(() => {
         stopRecording();
       }, 120_000);
@@ -476,12 +437,10 @@ export default function SessionScreen() {
       await processAnswer(transcript, durationSeconds);
     } catch (err: any) {
       console.error(err);
-      Alert.alert('Processing Error', err.message ?? 'Something went wrong. Please try again.');
+      Alert.alert('Processing Error', err?.message ?? 'Something went wrong. Please try again.');
       setScreenState('recording');
     }
   };
-
-  // ── Answer processing ──────────────────────────────────────────────────────
 
   const processAnswer = async (transcript: string, durationSeconds: number) => {
     try {
@@ -510,16 +469,14 @@ export default function SessionScreen() {
       setAnswers(updatedAnswers);
       answersRef.current = updatedAnswers;
 
-      // Try to generate a follow-up question
       const followUpQuestion = await generateFollowUp(question, transcript, feedbackObj.score);
 
       if (followUpQuestion) {
-        // Track follow-up state
+        const nextIdx = idx + 1;
         const newFollowUpCount = followUpCountRef.current + 1;
         setFollowUpCount(newFollowUpCount);
         followUpCountRef.current = newFollowUpCount;
 
-        // Save the main question if this is the first follow-up
         if (!isFollowUpRef.current) {
           setCurrentMainQuestion(question);
           currentMainQuestionRef.current = question;
@@ -527,19 +484,15 @@ export default function SessionScreen() {
         setIsFollowUp(true);
         isFollowUpRef.current = true;
 
-        // Insert follow-up right after current position
         const newQuestions = [...questionsRef.current];
-        newQuestions.splice(idx + 1, 0, followUpQuestion);
+        newQuestions.splice(nextIdx, 0, followUpQuestion);
         setQuestions(newQuestions);
         questionsRef.current = newQuestions;
 
-        // Move to the follow-up question
-        const nextIdx = idx + 1;
         setCurrentIdx(nextIdx);
         currentIdxRef.current = nextIdx;
         await speakText(followUpQuestion);
       } else {
-        // No follow-up — reset follow-up state and advance to next main question
         setIsFollowUp(false);
         isFollowUpRef.current = false;
         setFollowUpCount(0);
@@ -559,12 +512,10 @@ export default function SessionScreen() {
       }
     } catch (err: any) {
       console.error(err);
-      Alert.alert('Processing Error', err.message ?? 'Something went wrong. Please try again.');
+      Alert.alert('Processing Error', err?.message ?? 'Something went wrong. Please try again.');
       setScreenState('recording');
     }
   };
-
-  // ── Navigate to results ────────────────────────────────────────────────────
 
   const navigateToResults = (finalAnswers: AnswerRecord[]) => {
     router.replace({
@@ -578,8 +529,6 @@ export default function SessionScreen() {
     });
   };
 
-  // ── Render helpers ─────────────────────────────────────────────────────────
-
   const currentQuestion = questions[currentIdx] ?? '';
   const isGenerating = screenState === 'generating';
 
@@ -587,8 +536,8 @@ export default function SessionScreen() {
     if (screenState === 'generating') {
       return (
         <View style={styles.centeredSection}>
-          <ActivityIndicator size="large" color="#7F77DD" />
-          <Text style={styles.subtleLabel}>Preparing your interview...</Text>
+          <ActivityIndicator size="large" color="#52B788" />
+          <Text style={styles.subtleLabel}>Preparing your questions...</Text>
         </View>
       );
     }
@@ -597,12 +546,12 @@ export default function SessionScreen() {
       return (
         <View style={styles.centeredSection}>
           <Text style={[styles.interviewerLabel, isFollowUp && styles.followUpLabel]}>
-            {isFollowUp ? 'Follow-up' : 'Interviewer'}
+            {isFollowUp ? 'Follow-up question' : 'Interviewer'}
           </Text>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>AI</Text>
           </View>
-          <AIWaveform active={true} />
+          <AIWaveform active />
           <Text style={styles.questionText}>{currentQuestion}</Text>
         </View>
       );
@@ -612,18 +561,16 @@ export default function SessionScreen() {
       return (
         <View style={styles.centeredSection}>
           <Text style={[styles.interviewerLabel, isFollowUp && styles.followUpLabel]}>
-            {isFollowUp ? 'Follow-up' : 'Interviewer'}
+            {isFollowUp ? 'Follow-up question' : 'Your turn'}
           </Text>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>AI</Text>
           </View>
           <AIWaveform active={false} />
-          <Animated.Text
-            style={[styles.countdownNumber, { transform: [{ scale: countdownScale }] }]}
-          >
+          <Animated.Text style={[styles.countdownNumber, { transform: [{ scale: countdownScale }] }]}>
             {countdown}
           </Animated.Text>
-          <Text style={styles.subtleLabel}>Get ready to answer...</Text>
+          <Text style={styles.subtleLabel}>Answer in your own words</Text>
           <Text style={styles.questionTextSmall}>{currentQuestion}</Text>
         </View>
       );
@@ -641,7 +588,7 @@ export default function SessionScreen() {
             </Animated.View>
             <Text style={styles.recordingTimer}>{formatTime(recordingTime)}</Text>
             <Text style={styles.subtleLabel}>Recording your answer</Text>
-            <Text style={styles.tapToStopHint}>Tap to stop</Text>
+            <Text style={styles.tapToStopHint}>Tap the red button to stop</Text>
           </View>
         </View>
       );
@@ -650,8 +597,8 @@ export default function SessionScreen() {
     if (screenState === 'processing') {
       return (
         <View style={styles.centeredSection}>
-          <ActivityIndicator size="large" color="#7F77DD" />
-          <Text style={styles.subtleLabel}>Analyzing...</Text>
+          <ActivityIndicator size="large" color="#52B788" />
+          <Text style={styles.subtleLabel}>Analyzing your response</Text>
         </View>
       );
     }
@@ -659,8 +606,8 @@ export default function SessionScreen() {
     if (screenState === 'finished') {
       return (
         <View style={styles.centeredSection}>
-          <ActivityIndicator size="large" color="#7F77DD" />
-          <Text style={styles.subtleLabel}>Loading results...</Text>
+          <ActivityIndicator size="large" color="#52B788" />
+          <Text style={styles.subtleLabel}>Wrapping up results</Text>
         </View>
       );
     }
@@ -668,30 +615,21 @@ export default function SessionScreen() {
     return null;
   };
 
-  // ── Progress dots ──────────────────────────────────────────────────────────
-
   const renderDots = () => {
     if (isGenerating || questions.length === 0) return null;
-    // Only show dots for the original totalQuestions count to keep it clean
     const dotCount = Math.max(questions.length, totalQuestions);
     return (
       <View style={styles.dotsRow}>
         {Array.from({ length: dotCount }).map((_, i) => {
           const isCompleted = i < currentIdx;
           const isCurrent = i === currentIdx;
-          // Follow-up questions are inserted after their parent — mark them amber
-          const isFollowUpDot = i < questions.length && i > 0 &&
-            answersRef.current[i - 1]?.isFollowUp === false &&
-            answersRef.current[i]?.isFollowUp === true;
           return (
             <View
               key={i}
               style={[
                 styles.dot,
                 isCompleted && styles.dotCompleted,
-                isCompleted && isFollowUpDot && styles.dotFollowUp,
                 isCurrent && styles.dotCurrent,
-                isCurrent && isFollowUp && styles.dotCurrentFollowUp,
               ]}
             />
           );
@@ -700,201 +638,175 @@ export default function SessionScreen() {
     );
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
     <SafeAreaView style={styles.container}>
-
-      {/* TOP BAR */}
+      <StatusBar barStyle="light-content" backgroundColor="#070A0B" />
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Text style={styles.backText}>←</Text>
+        <TouchableOpacity style={styles.iconButton} onPress={handleBack} activeOpacity={0.85}>
+          <Feather name="arrow-left" size={20} color="#FFFFFF" />
         </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>
+        <Text style={styles.topBarTitle} numberOfLines={1}>
           {isGenerating
-            ? 'Setting up'
+            ? 'Preparing your questions'
             : isFollowUp
               ? `Follow-up ${followUpCount}`
               : `Question ${currentIdx + 1} of ${totalQuestions}`}
         </Text>
 
-        <TouchableOpacity
-          style={styles.muteButton}
-          onPress={() => setIsMuted(prev => !prev)}
-        >
-          <Text style={styles.muteEmoji}>{isMuted ? '🔇' : '🔊'}</Text>
+        <TouchableOpacity style={styles.iconButton} onPress={() => setIsMuted(prev => !prev)} activeOpacity={0.85}>
+          <Feather name={isMuted ? 'volume-x' : 'volume-2'} size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
-      {/* MIDDLE */}
-      <View style={styles.middle}>
-        {renderMiddle()}
-      </View>
-
-      {/* PROGRESS DOTS */}
-      <View style={styles.bottomArea}>
-        {renderDots()}
-      </View>
-
+      <View style={styles.middle}>{renderMiddle()}</View>
+      <View style={styles.bottomArea}>{renderDots()}</View>
     </SafeAreaView>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D0D0F',
+    backgroundColor: '#070A0B',
   },
-
-  // Top bar
   topBar: {
+    height: 56,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    height: 56,
+    backgroundColor: '#0D0D0F',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#1C1C1E',
   },
-  backButton: {
-    padding: 8,
-    width: 44,
-  },
-  backText: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  topBarTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center',
-  },
-  muteButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#1C1C1E',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  muteEmoji: {
-    fontSize: 18,
+  topBarTitle: {
+    flex: 1,
+    marginHorizontal: 12,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
   },
-
-  // Middle section
   middle: {
     flex: 1,
+    paddingHorizontal: 24,
     justifyContent: 'center',
-    alignItems: 'center',
   },
   centeredSection: {
     alignItems: 'center',
-    paddingHorizontal: 32,
-    width: '100%',
-  },
-
-  // AI avatar
-  interviewerLabel: {
-    color: '#8E8E93',
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 12,
-  },
-  avatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#7F77DD',
-    alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: 'bold',
+  interviewerLabel: {
+    color: '#52B788',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 18,
   },
-
-  // Question text
+  followUpLabel: {
+    color: '#FF9800',
+  },
+  avatarCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#D8F3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: 'rgba(82,183,136,0.22)',
+  },
+  avatarText: {
+    color: '#2D6A4F',
+    fontSize: 28,
+    fontWeight: '800',
+  },
   questionText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 22,
+    lineHeight: 31,
+    fontWeight: '700',
     textAlign: 'center',
-    lineHeight: 28,
     marginTop: 8,
   },
   questionTextSmall: {
-    color: '#8E8E93',
-    fontSize: 15,
+    color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 25,
+    fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 32,
+    marginTop: 14,
   },
-
-  // Countdown
+  subtleLabel: {
+    color: '#8E8E93',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 12,
+  },
   countdownNumber: {
-    color: '#7F77DD',
-    fontSize: 96,
-    fontWeight: 'bold',
-    marginVertical: 8,
+    color: '#FFFFFF',
+    fontSize: 76,
+    lineHeight: 86,
+    fontWeight: '800',
+    textAlign: 'center',
   },
-
-  // Recording
   recordingArea: {
+    marginTop: 34,
     alignItems: 'center',
   },
   bigMicButton: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#A32D2D',
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: '#FF3B30',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    shadowColor: '#FF3B30',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 10,
   },
   bigMicInner: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#FFFFFF',
   },
   recordingTimer: {
     color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: 'bold',
-    fontVariant: ['tabular-nums'],
-    marginBottom: 8,
+    fontSize: 34,
+    fontWeight: '800',
+    marginTop: 24,
   },
   tapToStopHint: {
-    color: '#555',
-    fontSize: 12,
-    marginTop: 4,
+    color: '#FF9F0A',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
   },
-
-  // Subtle label
-  subtleLabel: {
-    color: '#8E8E93',
-    fontSize: 14,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-
-  // Progress dots
   bottomArea: {
-    paddingBottom: 32,
-    alignItems: 'center',
-    minHeight: 48,
+    minHeight: 72,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
     justifyContent: 'center',
   },
   dotsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 8,
   },
   dot: {
@@ -904,24 +816,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#2C2C2E',
   },
   dotCompleted: {
-    backgroundColor: '#7F77DD',
+    backgroundColor: '#52B788',
   },
   dotCurrent: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 22,
     backgroundColor: '#FFFFFF',
-  },
-  dotFollowUp: {
-    backgroundColor: '#FF9800',
-  },
-  dotCurrentFollowUp: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#FF9800',
-  },
-  followUpLabel: {
-    color: '#FF9800',
   },
 });

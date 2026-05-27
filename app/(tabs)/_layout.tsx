@@ -1,22 +1,23 @@
-import React from 'react';
+﻿import React from 'react';
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
         tabBarStyle: {
-          backgroundColor: '#1C1C1E',
-          borderTopWidth: 0,
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#EBEBEB',
+          borderTopWidth: 0.5,
         },
-        tabBarActiveTintColor: '#7F77DD',
-        tabBarInactiveTintColor: '#8E8E93',
-        headerStyle: {
-          backgroundColor: '#0D0D0F',
+        tabBarActiveTintColor: '#52B788',
+        tabBarInactiveTintColor: '#ABABAB',
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '500',
         },
-        headerTintColor: '#FFFFFF',
-        headerShadowVisible: false,
+        headerShown: false,
       }}
     >
       <Tabs.Screen
@@ -24,7 +25,7 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarLabel: 'Home',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24, color }}>🏠</Text>,
+          tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -32,7 +33,7 @@ export default function TabLayout() {
         options={{
           title: 'History',
           tabBarLabel: 'History',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24, color }}>🕒</Text>,
+          tabBarIcon: ({ color }) => <Feather name="clock" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -40,7 +41,7 @@ export default function TabLayout() {
         options={{
           title: 'Progress',
           tabBarLabel: 'Progress',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24, color }}>📈</Text>,
+          tabBarIcon: ({ color }) => <Feather name="trending-up" size={22} color={color} />,
         }}
       />
     </Tabs>

@@ -6,11 +6,53 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@clerk/expo';
 import { useEffect, useState } from 'react';
 import { getUserSessions, SessionRecord } from '../../services/supabase';
 import { useRouter } from 'expo-router';
+
+const COLORS = {
+  background: '#F7F7F5',
+  card: '#FFFFFF',
+  border: '#EBEBEB',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#6B6B6B',
+  textHint: '#ABABAB',
+  mint: '#52B788',
+  mintLight: '#D8F3E8',
+  mintDark: '#2D6A4F',
+};
+
+function getScoreColors(score: number) {
+  if (score >= 75) {
+    return { text: COLORS.mintDark, background: COLORS.mintLight };
+  }
+  if (score >= 50) {
+    return { text: '#E65100', background: '#FFF3E0' };
+  }
+  return { text: '#B71C1C', background: '#FFEBEE' };
+}
+
+function formatDate(dateString?: string) {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+
+  if (Number.isNaN(date.getTime())) return '';
+
+  return date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatField(field: string) {
+  return field.charAt(0).toUpperCase() + field.slice(1);
+}
 
 export default function HistoryScreen() {
   const { userId } = useAuth();
@@ -20,7 +62,12 @@ export default function HistoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchSessions = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       const data = await getUserSessions(userId);
       setSessions(data ?? []);
@@ -41,85 +88,77 @@ export default function HistoryScreen() {
     fetchSessions();
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 75) return '#4CAF50';
-    if (score >= 50) return '#FF9800';
-    return '#F44336';
-  };
+  const renderSession = ({ item }: { item: SessionRecord }) => {
+    const scoreColors = getScoreColors(item.avg_score);
+    const questions = item.questions ?? [];
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const renderSession = ({ item }: { item: SessionRecord }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View>
-          <Text style={styles.fieldLabel}>
-            {item.field.charAt(0).toUpperCase() + item.field.slice(1)}
-          </Text>
-          <Text style={styles.dateText}>{formatDate(item.created_at ?? '')}</Text>
-        </View>
-        <View style={[styles.scoreBadge, { backgroundColor: getScoreColor(item.avg_score) + '22' }]}>
-          <Text style={[styles.scoreText, { color: getScoreColor(item.avg_score) }]}>
-            {item.avg_score}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.divider} />
-
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{item.total_questions}</Text>
-          <Text style={styles.statLabel}>Questions</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{item.avg_clarity}</Text>
-          <Text style={styles.statLabel}>Clarity</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{item.avg_depth}</Text>
-          <Text style={styles.statLabel}>Depth</Text>
-        </View>
-      </View>
-
-      <View style={styles.questionsPreview}>
-        <Text style={styles.questionsLabel}>Questions asked:</Text>
-        {(item.questions ?? []).slice(0, 2).map((q, i) => (
-          <Text key={i} style={styles.questionItem} numberOfLines={1}>
-            • {q}
-          </Text>
-        ))}
-        {(item.questions ?? []).length > 2 && (
-          <Text style={styles.moreText}>+{item.questions.length - 2} more</Text>
-        )}
-      </View>
-    </View>
-  );
-
-  if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#7F77DD" />
+      <View style={styles.card}>
+        <View style={styles.cardTopRow}>
+          <View style={styles.cardTitleBlock}>
+            <Text style={styles.fieldName}>{formatField(item.field)}</Text>
+            <Text style={styles.dateText}>{formatDate(item.created_at)}</Text>
+          </View>
+
+          <View style={[styles.scoreCircle, { backgroundColor: scoreColors.background }]}>
+            <Text style={[styles.scoreText, { color: scoreColors.text }]}>
+              {item.avg_score}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{item.total_questions}</Text>
+            <Text style={styles.statLabel}>Questions</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{item.avg_clarity}</Text>
+            <Text style={styles.statLabel}>Clarity</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{item.avg_depth}</Text>
+            <Text style={styles.statLabel}>Depth</Text>
+          </View>
+        </View>
+
+        <View style={styles.questionsPreview}>
+          <Text style={styles.questionsLabel}>QUESTIONS ASKED</Text>
+          {questions.slice(0, 2).map((question, index) => (
+            <Text key={`${item.id ?? 'session'}-${index}`} style={styles.questionItem} numberOfLines={1}>
+              {'\u2022 '}{question}
+            </Text>
+          ))}
+          {questions.length > 2 && (
+            <Text style={styles.moreText}>+{questions.length - 2} more</Text>
+          )}
+        </View>
       </View>
     );
-  }
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>History</Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
 
-      {sessions.length === 0 ? (
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>History</Text>
+        {sessions.length > 0 && (
+          <Text style={styles.headerSubtitle}>
+            {sessions.length} session{sessions.length === 1 ? '' : 's'}
+          </Text>
+        )}
+      </View>
+
+      {loading ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyIcon}>🎙️</Text>
+          <ActivityIndicator size="large" color={COLORS.mint} />
+        </View>
+      ) : sessions.length === 0 ? (
+        <View style={styles.centered}>
+          <Feather name="clock" size={56} color={COLORS.border} />
           <Text style={styles.emptyTitle}>No sessions yet</Text>
           <Text style={styles.emptySubtitle}>
             Complete an interview to see your history here
@@ -127,6 +166,7 @@ export default function HistoryScreen() {
           <TouchableOpacity
             style={styles.startButton}
             onPress={() => router.replace('/(tabs)')}
+            activeOpacity={0.85}
           >
             <Text style={styles.startButtonText}>Start Interview</Text>
           </TouchableOpacity>
@@ -135,149 +175,158 @@ export default function HistoryScreen() {
         <FlatList
           data={sessions}
           renderItem={renderSession}
-          keyExtractor={(item) => item.id ?? Math.random().toString()}
-          contentContainerStyle={styles.list}
+          keyExtractor={(item, index) => item.id ?? `${item.created_at ?? 'session'}-${index}`}
+          contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#7F77DD"
+              tintColor={COLORS.mint}
             />
           }
           showsVerticalScrollIndicator={false}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: COLORS.background,
   },
   header: {
-    color: '#fff',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  headerTitle: {
     fontSize: 28,
-    fontWeight: 'bold',
-    padding: 20,
-    paddingTop: 60,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   emptyTitle: {
-    color: '#fff',
     fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 8,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginTop: 16,
   },
   emptySubtitle: {
-    color: '#8E8E93',
     fontSize: 14,
+    color: COLORS.textSecondary,
     textAlign: 'center',
+    marginTop: 8,
     marginBottom: 24,
     lineHeight: 20,
   },
   startButton: {
-    backgroundColor: '#7F77DD',
-    paddingHorizontal: 24,
+    backgroundColor: COLORS.mint,
+    paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 14,
   },
   startButtonText: {
-    color: '#fff',
+    color: COLORS.card,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  list: {
-    padding: 16,
+  listContent: {
     paddingBottom: 40,
   },
   card: {
-    backgroundColor: '#1C1C1E',
+    marginHorizontal: 16,
+    marginVertical: 8,
+    backgroundColor: COLORS.card,
+    borderWidth: 0.5,
+    borderColor: COLORS.border,
     borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
   },
-  cardHeader: {
+  cardTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  fieldLabel: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+  cardTitleBlock: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  fieldName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
   },
   dateText: {
-    color: '#8E8E93',
     fontSize: 12,
+    color: COLORS.textHint,
+    marginTop: 2,
   },
-  scoreBadge: {
+  scoreCircle: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   scoreText: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   divider: {
-    height: 1,
-    backgroundColor: '#2C2C2E',
-    marginBottom: 12,
+    height: 0.5,
+    backgroundColor: COLORS.border,
+    marginVertical: 12,
   },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 12,
   },
   statItem: {
     alignItems: 'center',
   },
   statValue: {
-    color: '#fff',
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: COLORS.textPrimary,
   },
   statLabel: {
-    color: '#8E8E93',
     fontSize: 11,
+    color: COLORS.textHint,
     marginTop: 2,
   },
   questionsPreview: {
-    backgroundColor: '#2C2C2E',
+    backgroundColor: COLORS.background,
     borderRadius: 10,
     padding: 10,
+    marginTop: 12,
   },
   questionsLabel: {
-    color: '#8E8E93',
-    fontSize: 11,
-    textTransform: 'uppercase',
+    fontSize: 10,
+    color: COLORS.textHint,
     letterSpacing: 0.5,
     marginBottom: 6,
   },
   questionItem: {
-    color: '#fff',
     fontSize: 13,
+    color: COLORS.textSecondary,
     marginBottom: 3,
     lineHeight: 18,
   },
   moreText: {
-    color: '#7F77DD',
     fontSize: 12,
+    color: COLORS.mint,
     marginTop: 4,
   },
 });

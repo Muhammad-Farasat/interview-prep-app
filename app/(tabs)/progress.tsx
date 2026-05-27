@@ -1,209 +1,96 @@
-import { View, Text, StyleSheet, ScrollView,
-  ActivityIndicator, Dimensions } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  Dimensions,
+  StatusBar,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@clerk/expo';
 import { useEffect, useState } from 'react';
-import { getUserSessions, SessionRecord } from '../../services/supabase';
+import { getUserSessions } from '../../services/supabase';
+import { BarChart } from 'react-native-chart-kit';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CHART_WIDTH = SCREEN_WIDTH - 48; // 24px padding each side
+const screenWidth = Dimensions.get('window').width;
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
+const COLORS = {
+  background: '#F7F7F5',
+  card: '#FFFFFF',
+  border: '#EBEBEB',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#6B6B6B',
+  textHint: '#ABABAB',
+  mint: '#52B788',
+  mintLight: '#D8F3E8',
+  mintDark: '#2D6A4F',
+};
 
-function StatCard({ label, value, color }: { label: string; value: string | number; color: string }) {
+type SessionRecord = Awaited<ReturnType<typeof getUserSessions>>[number];
+
+const getScoreColor = (score: number) => {
+  if (score >= 75) return '#2D6A4F';
+  if (score >= 50) return '#E65100';
+  return '#B71C1C';
+};
+
+const getScoreBg = (score: number) => {
+  if (score >= 75) return '#D8F3E8';
+  if (score >= 50) return '#FFF3E0';
+  return '#FFEBEE';
+};
+
+function formatField(field: string) {
+  return field.charAt(0).toUpperCase() + field.slice(1);
+}
+
+function average(values: number[]) {
+  if (values.length === 0) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function StatCard({
+  label,
+  value,
+  color = COLORS.textPrimary,
+}: {
+  label: string;
+  value: string | number;
+  color?: string;
+}) {
   return (
-    <View style={statStyles.card}>
-      <Text
-        style={[statStyles.value, { color }]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-      >
+    <View style={styles.statCard}>
+      <Text style={[styles.statValue, { color }]} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
-      <Text style={statStyles.label} numberOfLines={1}>{label}</Text>
+      <Text style={styles.statLabel} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-const statStyles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: '#1C1C1E',
-    borderRadius: 14,
-    padding: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 4,
-    minWidth: 60,
-  },
-  value: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  label: {
-    color: '#8E8E93',
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    textAlign: 'center',
-  },
-});
-
-// ─── Bar chart ────────────────────────────────────────────────────────────────
-
-function BarChart({
-  data,
+function SkillRow({
   label,
+  value,
   color,
 }: {
-  data: { x: string; y: number }[];
   label: string;
+  value: number;
   color: string;
 }) {
-  if (data.length === 0) return null;
-
-  const maxVal = 100; // scores are 0-100
-  const barWidth = Math.max(8, Math.floor((CHART_WIDTH - 28 - data.length * 8) / data.length));
-  const chartHeight = 120;
-
   return (
-    <View style={chartStyles.container}>
-      <Text style={chartStyles.title}>{label}</Text>
-      <View style={[chartStyles.chart, { height: chartHeight }]}>
-        {/* Y-axis labels */}
-        <View style={chartStyles.yAxis}>
-          {[100, 75, 50, 25, 0].map(v => (
-            <Text key={v} style={chartStyles.yLabel}>{v}</Text>
-          ))}
-        </View>
-        {/* Bars */}
-        <View style={chartStyles.barsArea}>
-          {data.map((d, i) => {
-            const barH = Math.max(2, (d.y / maxVal) * chartHeight);
-            return (
-              <View key={i} style={[chartStyles.barCol, { width: barWidth }]}>
-                <View style={chartStyles.barTrack}>
-                  <View
-                    style={[
-                      chartStyles.bar,
-                      { height: barH, backgroundColor: color, width: barWidth - 4 },
-                    ]}
-                  />
-                </View>
-                <Text style={chartStyles.xLabel} numberOfLines={1}>{d.x}</Text>
-              </View>
-            );
-          })}
-        </View>
+    <View style={styles.skillRow}>
+      <Text style={styles.skillLabel}>{label}</Text>
+      <View style={styles.skillTrack}>
+        <View style={[styles.skillFill, { width: `${value}%`, backgroundColor: color }]} />
       </View>
+      <Text style={styles.skillNumber}>{value}</Text>
     </View>
   );
 }
-
-const chartStyles = StyleSheet.create({
-  container: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  title: {
-    color: '#8E8E93',
-    fontSize: 11,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  chart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  yAxis: {
-    width: 28,
-    height: '100%',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    paddingRight: 4,
-  },
-  yLabel: {
-    color: '#555',
-    fontSize: 9,
-  },
-  barsArea: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
-    height: '100%',
-    overflow: 'hidden',
-  },
-  barCol: {
-    alignItems: 'center',
-  },
-  barTrack: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  bar: {
-    borderRadius: 3,
-  },
-  xLabel: {
-    color: '#555',
-    fontSize: 8,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-});
-
-// ─── Skill bar ────────────────────────────────────────────────────────────────
-
-function SkillBar({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <View style={skillStyles.row}>
-      <Text style={skillStyles.label}>{label}</Text>
-      <View style={skillStyles.track}>
-        <View style={[skillStyles.fill, { width: `${value}%`, backgroundColor: color }]} />
-      </View>
-      <Text style={[skillStyles.value, { color }]}>{value}</Text>
-    </View>
-  );
-}
-
-const skillStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  label: {
-    color: '#8E8E93',
-    fontSize: 13,
-    width: 72,
-  },
-  track: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#2C2C2E',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginHorizontal: 10,
-  },
-  fill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  value: {
-    fontSize: 13,
-    fontWeight: '600',
-    width: 32,
-    textAlign: 'right',
-  },
-});
-
-// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function ProgressScreen() {
   const { userId } = useAuth();
@@ -211,7 +98,11 @@ export default function ProgressScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
     (async () => {
       try {
         const data = await getUserSessions(userId);
@@ -224,210 +115,311 @@ export default function ProgressScreen() {
     })();
   }, [userId]);
 
+  const avgScore = average(sessions.map(session => session.avg_score));
+  const avgClarity = average(sessions.map(session => session.avg_clarity));
+  const avgDepth = average(sessions.map(session => session.avg_depth));
+  const bestScore = sessions.length ? Math.max(...sessions.map(session => session.avg_score)) : 0;
+  const recentSessions = [...sessions].reverse().slice(-8);
+  const lastThreeAvg = average(sessions.slice(0, 3).map(session => session.avg_score));
+  const previousThree = sessions.slice(3, 6);
+  const previousThreeAvg = previousThree.length
+    ? average(previousThree.map(session => session.avg_score))
+    : lastThreeAvg;
+  const trend = lastThreeAvg - previousThreeAvg;
+  const trendValue = trend > 0 ? `+${trend}` : `${trend}`;
+  const trendColor = trend >= 0 ? COLORS.mintDark : '#B71C1C';
+
+  const chartData = {
+    labels: recentSessions.map((_, index) => `${index + 1}`),
+    datasets: [
+      {
+        data: recentSessions.map(session => session.avg_score),
+      },
+    ],
+  };
+
+  const fieldStats = Object.entries(
+    sessions.reduce<Record<string, { count: number; totalScore: number }>>((acc, session) => {
+      if (!acc[session.field]) acc[session.field] = { count: 0, totalScore: 0 };
+      acc[session.field].count += 1;
+      acc[session.field].totalScore += session.avg_score;
+      return acc;
+    }, {})
+  );
+
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#7F77DD" />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={COLORS.mint} />
+        </View>
+      </SafeAreaView>
     );
   }
-
-  if (sessions.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyIcon}>📈</Text>
-        <Text style={styles.emptyTitle}>No data yet</Text>
-        <Text style={styles.emptySubtitle}>
-          Complete your first interview to see progress charts here.
-        </Text>
-      </View>
-    );
-  }
-
-  // ── Derived stats ────────────────────────────────────────────────────────
-
-  // Most recent 10 sessions (oldest first for chart left→right)
-  const recent = [...sessions].reverse().slice(-10);
-
-  const totalSessions = sessions.length;
-  const overallAvgScore = Math.round(
-    sessions.reduce((s, r) => s + r.avg_score, 0) / sessions.length
-  );
-  const bestScore = Math.max(...sessions.map(r => r.avg_score));
-
-  // Trend: compare last 3 vs previous 3
-  const last3 = sessions.slice(0, 3);
-  const prev3 = sessions.slice(3, 6);
-  const last3Avg = last3.length
-    ? Math.round(last3.reduce((s, r) => s + r.avg_score, 0) / last3.length)
-    : 0;
-  const prev3Avg = prev3.length
-    ? Math.round(prev3.reduce((s, r) => s + r.avg_score, 0) / prev3.length)
-    : last3Avg;
-  const trend = last3Avg - prev3Avg;
-  const trendLabel = trend > 0 ? `+${trend}` : trend < 0 ? `${trend}` : '—';
-  const trendColor = trend > 0 ? '#4CAF50' : trend < 0 ? '#F44336' : '#8E8E93';
-
-  // Skill averages
-  const avgClarity = Math.round(
-    sessions.reduce((s, r) => s + r.avg_clarity, 0) / sessions.length
-  );
-  const avgDepth = Math.round(
-    sessions.reduce((s, r) => s + r.avg_depth, 0) / sessions.length
-  );
-
-  // Score color
-  const scoreColor = (s: number) =>
-    s >= 75 ? '#4CAF50' : s >= 50 ? '#FF9800' : '#F44336';
-
-  // Chart data
-  const scoreChartData = recent.map((r, i) => ({
-    x: `#${sessions.length - recent.length + i + 1}`,
-    y: r.avg_score,
-  }));
-  const clarityChartData = recent.map((r, i) => ({
-    x: `#${sessions.length - recent.length + i + 1}`,
-    y: r.avg_clarity,
-  }));
-  const depthChartData = recent.map((r, i) => ({
-    x: `#${sessions.length - recent.length + i + 1}`,
-    y: r.avg_depth,
-  }));
-
-  // Field breakdown
-  const fieldCounts: Record<string, { count: number; totalScore: number }> = {};
-  sessions.forEach(r => {
-    if (!fieldCounts[r.field]) fieldCounts[r.field] = { count: 0, totalScore: 0 };
-    fieldCounts[r.field].count += 1;
-    fieldCounts[r.field].totalScore += r.avg_score;
-  });
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* ── Summary stats ── */}
-      <View style={styles.statsRow}>
-        <StatCard label="Sessions" value={totalSessions} color="#FFFFFF" />
-        <StatCard label="Avg Score" value={overallAvgScore} color={scoreColor(overallAvgScore)} />
-        <StatCard label="Best" value={bestScore} color="#4CAF50" />
-        <StatCard label="Trend" value={trendLabel} color={trendColor} />
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Progress</Text>
+        <Text style={styles.headerSubtitle}>
+          {sessions.length} interview{sessions.length === 1 ? '' : 's'} completed
+        </Text>
       </View>
 
-      {/* ── Score over time ── */}
-      <BarChart data={scoreChartData} label="Score over time" color="#7F77DD" />
+      {sessions.length === 0 ? (
+        <View style={styles.centered}>
+          <Feather name="trending-up" size={56} color={COLORS.border} />
+          <Text style={styles.emptyTitle}>No data yet</Text>
+          <Text style={styles.emptySubtitle}>Complete interviews to see progress</Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.statsGrid}>
+            <StatCard label="Sessions" value={sessions.length} />
+            <StatCard label="Avg Score" value={avgScore} color={getScoreColor(avgScore)} />
+            <StatCard label="Best" value={bestScore} color={getScoreColor(bestScore)} />
+            <StatCard label="Trend" value={trendValue} color={trendColor} />
+          </View>
 
-      {/* ── Skill averages ── */}
-      <View style={styles.skillCard}>
-        <Text style={styles.sectionTitle}>Skill Averages</Text>
-        <SkillBar label="Score" value={overallAvgScore} color={scoreColor(overallAvgScore)} />
-        <SkillBar label="Clarity" value={avgClarity} color="#7F77DD" />
-        <SkillBar label="Depth" value={avgDepth} color="#5AC8FA" />
-      </View>
-
-      {/* ── Clarity & Depth charts ── */}
-      <BarChart data={clarityChartData} label="Clarity over time" color="#7F77DD" />
-      <BarChart data={depthChartData} label="Depth over time" color="#5AC8FA" />
-
-      {/* ── Field breakdown ── */}
-      <View style={styles.skillCard}>
-        <Text style={styles.sectionTitle}>By Field</Text>
-        {Object.entries(fieldCounts).map(([field, { count, totalScore }]) => {
-          const avg = Math.round(totalScore / count);
-          return (
-            <View key={field} style={styles.fieldRow}>
-              <Text style={styles.fieldName}>
-                {field.charAt(0).toUpperCase() + field.slice(1)}
+          <Text style={styles.chartTitle}>Score over time</Text>
+          <View style={styles.chartCard}>
+            {sessions.length < 2 ? (
+              <Text style={styles.chartEmptyText}>
+                Complete more interviews to see your score trend
               </Text>
-              <Text style={styles.fieldCount}>{count} session{count !== 1 ? 's' : ''}</Text>
-              <Text style={[styles.fieldScore, { color: scoreColor(avg) }]}>{avg}</Text>
-            </View>
-          );
-        })}
-      </View>
+            ) : (
+              <BarChart
+                data={chartData}
+                width={screenWidth - 64}
+                height={180}
+                yAxisLabel=""
+                yAxisSuffix=""
+                chartConfig={{
+                  backgroundColor: COLORS.card,
+                  backgroundGradientFrom: COLORS.card,
+                  backgroundGradientTo: COLORS.card,
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(82, 183, 136, ${opacity})`,
+                  labelColor: () => COLORS.textHint,
+                  barPercentage: 0.6,
+                }}
+                style={styles.chart}
+                fromZero
+                showValuesOnTopOfBars
+              />
+            )}
+          </View>
 
-    </ScrollView>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Skill averages</Text>
+            <SkillRow label="Score" value={avgScore} color={getScoreColor(avgScore)} />
+            <SkillRow label="Clarity" value={avgClarity} color={COLORS.mint} />
+            <SkillRow label="Depth" value={avgDepth} color={COLORS.mint} />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>By field</Text>
+            {fieldStats.map(([field, stat], index) => {
+              const avg = Math.round(stat.totalScore / stat.count);
+              const isLast = index === fieldStats.length - 1;
+
+              return (
+                <View key={field} style={[styles.fieldRow, isLast && styles.fieldRowLast]}>
+                  <Text style={styles.fieldName}>{formatField(field)}</Text>
+                  <Text style={styles.fieldCount}>
+                    {stat.count} session{stat.count === 1 ? '' : 's'}
+                  </Text>
+                  <View style={[styles.scorePill, { backgroundColor: getScoreBg(avg) }]}>
+                    <Text style={[styles.scorePillText, { color: getScoreColor(avg) }]}>
+                      {avg}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: COLORS.background,
   },
-  scrollContent: {
-    paddingHorizontal: 24,
+  header: {
+    paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 48,
+    paddingBottom: 8,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   centered: {
     flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   emptyTitle: {
-    color: '#FFFFFF',
     fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 8,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginTop: 16,
   },
   emptySubtitle: {
-    color: '#8E8E93',
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
+  statsGrid: {
+    margin: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  statCard: {
+    backgroundColor: COLORS.card,
+    borderWidth: 0.5,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 14,
+    flexGrow: 1,
+    flexBasis: '48%',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: COLORS.textHint,
+    marginTop: 4,
+  },
+  chartTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  chartCard: {
+    backgroundColor: COLORS.card,
+    borderWidth: 0.5,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 212,
+  },
+  chart: {
+    borderRadius: 12,
+  },
+  chartEmptyText: {
+    color: COLORS.textSecondary,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
-  statsRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    marginHorizontal: -4,
-  },
-  skillCard: {
-    backgroundColor: '#1C1C1E',
+  card: {
+    backgroundColor: COLORS.card,
+    borderWidth: 0.5,
+    borderColor: COLORS.border,
     borderRadius: 16,
+    margin: 16,
+    marginTop: 0,
     padding: 16,
+  },
+  cardTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
     marginBottom: 16,
   },
-  sectionTitle: {
-    color: '#8E8E93',
-    fontSize: 11,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 16,
+  skillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  skillLabel: {
+    width: 70,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+  skillTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: COLORS.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  skillFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  skillNumber: {
+    width: 36,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'right',
+    color: COLORS.textPrimary,
   },
   fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2C2C2E',
+    borderBottomWidth: 0.5,
+    borderBottomColor: COLORS.border,
+  },
+  fieldRowLast: {
+    borderBottomWidth: 0,
   },
   fieldName: {
-    color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    flex: 1,
+    color: COLORS.textPrimary,
   },
   fieldCount: {
-    color: '#8E8E93',
-    fontSize: 12,
-    marginRight: 12,
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 13,
+    color: COLORS.textHint,
   },
-  fieldScore: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    width: 36,
-    textAlign: 'right',
+  scorePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  scorePillText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

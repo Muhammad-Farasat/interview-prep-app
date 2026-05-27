@@ -10,8 +10,10 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  SafeAreaView,
+  StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useSignIn, useSignUp, useOAuth } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 
@@ -19,7 +21,6 @@ type Mode = 'signin' | 'signup';
 
 export default function LoginScreen() {
   const router = useRouter();
-
   const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
   const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
   const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
@@ -31,7 +32,6 @@ export default function LoginScreen() {
   const [pendingVerification, setPendingVerification] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ── Sign In ──────────────────────────────────────────────
   const handleSignIn = async () => {
     if (!signInLoaded) return;
     if (!email.trim() || !password.trim()) {
@@ -58,7 +58,6 @@ export default function LoginScreen() {
     }
   };
 
-  // ── Sign Up ──────────────────────────────────────────────
   const handleSignUp = async () => {
     if (!signUpLoaded) return;
     if (!email.trim() || !password.trim()) {
@@ -106,14 +105,14 @@ export default function LoginScreen() {
     }
   };
 
-  // ── Google OAuth ─────────────────────────────────────────
   const handleGoogleSignIn = async () => {
     try {
       const { createdSessionId, setActive } = await startOAuthFlow({
         redirectUrl: 'interviewai://oauth-callback',
       });
-      if (createdSessionId) {
-        await setActive!({ session: createdSessionId });
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
+        router.replace('/(tabs)');
       }
     } catch (err) {
       console.error(err);
@@ -121,29 +120,24 @@ export default function LoginScreen() {
     }
   };
 
-  // ── Verification screen ──────────────────────────────────
   if (pendingVerification) {
     return (
       <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
+        <StatusBar barStyle="dark-content" backgroundColor="#F7F7F5" />
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
             <View style={styles.inner}>
-              <Text style={styles.logo}>InterviewAI</Text>
-              <Text style={styles.subtitle}>Check your email for a 6-digit code</Text>
+              <View style={styles.verificationIcon}>
+                <Feather name="mail" size={28} color="#52B788" />
+              </View>
+              <Text style={styles.title}>Check your inbox</Text>
+              <Text style={styles.subtitle}>Enter the 6-digit verification code we sent to your email.</Text>
 
               <View style={styles.formCard}>
-                <Text style={styles.formTitle}>Verify your email</Text>
-
                 <TextInput
-                  style={styles.input}
+                  style={styles.codeInput}
                   placeholder="6-digit code"
-                  placeholderTextColor="#555"
+                  placeholderTextColor="#ABABAB"
                   value={verificationCode}
                   onChangeText={setVerificationCode}
                   keyboardType="number-pad"
@@ -151,24 +145,12 @@ export default function LoginScreen() {
                   autoFocus
                 />
 
-                <TouchableOpacity
-                  style={[styles.primaryButton, loading && styles.buttonDisabled]}
-                  onPress={handleVerify}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Verify Email</Text>
-                  )}
+                <TouchableOpacity style={[styles.primaryButton, loading && styles.buttonDisabled]} onPress={handleVerify} disabled={loading} activeOpacity={0.85}>
+                  {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>Verify Email</Text>}
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => setPendingVerification(false)}
-                >
-                  <Text style={styles.linkText}>← Back</Text>
+                <TouchableOpacity style={styles.linkButton} onPress={() => setPendingVerification(false)} activeOpacity={0.85}>
+                  <Text style={styles.linkText}>? Back</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -178,100 +160,70 @@ export default function LoginScreen() {
     );
   }
 
-  // ── Main auth screen ─────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+      <StatusBar barStyle="dark-content" backgroundColor="#F7F7F5" />
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.inner}>
-            {/* Logo */}
-            <Text style={styles.logo}>InterviewAI</Text>
-            <Text style={styles.subtitle}>Your AI interview coach</Text>
+            <View style={styles.hero}>
+              <View style={styles.logoCircle}>
+                <Feather name="mic" size={24} color="#52B788" />
+              </View>
+              <Text style={styles.heroTitle}>InterviewAI</Text>
+              <Text style={styles.heroSubtitle}>Your AI interview coach</Text>
+            </View>
 
-            {/* Tab switcher */}
-            <View style={styles.tabRow}>
-              <TouchableOpacity
-                style={styles.tab}
-                onPress={() => setMode('signin')}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.tabText, mode === 'signin' && styles.tabTextActive]}>
-                  Sign In
-                </Text>
-                {mode === 'signin' && <View style={styles.tabUnderline} />}
+            <View style={styles.switcherCard}>
+              <TouchableOpacity style={[styles.tabButton, mode === 'signin' && styles.tabButtonActive]} onPress={() => setMode('signin')} activeOpacity={0.85}>
+                <Text style={[styles.tabButtonText, mode === 'signin' && styles.tabButtonTextActive]}>Sign In</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.tab}
-                onPress={() => setMode('signup')}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.tabText, mode === 'signup' && styles.tabTextActive]}>
-                  Sign Up
-                </Text>
-                {mode === 'signup' && <View style={styles.tabUnderline} />}
+              <TouchableOpacity style={[styles.tabButton, mode === 'signup' && styles.tabButtonActive]} onPress={() => setMode('signup')} activeOpacity={0.85}>
+                <Text style={[styles.tabButtonText, mode === 'signup' && styles.tabButtonTextActive]}>Sign Up</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Form card */}
             <View style={styles.formCard}>
-              <TextInput
-                style={styles.input}
-                placeholder="Email address"
-                placeholderTextColor="#555"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+              <View style={styles.inputRow}>
+                <Feather name="mail" size={18} color="#6B6B6B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email address"
+                  placeholderTextColor="#ABABAB"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#555"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-              />
+              <View style={styles.inputRow}>
+                <Feather name="lock" size={18} color="#6B6B6B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor="#ABABAB"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+              </View>
 
-              {/* Primary action button */}
-              <TouchableOpacity
-                style={[styles.primaryButton, loading && styles.buttonDisabled]}
-                onPress={mode === 'signin' ? handleSignIn : handleSignUp}
-                disabled={loading}
-                activeOpacity={0.85}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>
-                    {mode === 'signin' ? 'Sign In' : 'Create Account'}
-                  </Text>
-                )}
+              <TouchableOpacity style={[styles.primaryButton, loading && styles.buttonDisabled]} onPress={mode === 'signin' ? handleSignIn : handleSignUp} disabled={loading} activeOpacity={0.85}>
+                {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{mode === 'signin' ? 'Sign In' : 'Create Account'}</Text>}
               </TouchableOpacity>
 
-              {/* Divider */}
               <View style={styles.dividerRow}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
+                <Text style={styles.dividerText}>or continue with</Text>
                 <View style={styles.dividerLine} />
               </View>
 
-              {/* Google button */}
-              <TouchableOpacity
-                style={styles.googleButton}
-                onPress={handleGoogleSignIn}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.googleButtonText}>🇬 Continue with Google</Text>
+              <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} activeOpacity={0.85}>
+                <Feather name="globe" size={18} color="#1A1A1A" style={styles.googleIcon} />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -284,7 +236,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#F7F7F5',
   },
   flex: {
     flex: 1,
@@ -292,124 +244,179 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: 24,
   },
   inner: {
     paddingHorizontal: 24,
-    paddingVertical: 40,
-    alignItems: 'center',
   },
-  logo: {
-    color: '#7F77DD',
-    fontSize: 32,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+  hero: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  logoCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    backgroundColor: '#D8F3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    color: '#6B6B6B',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  verificationIcon: {
+    width: 78,
+    height: 78,
+    borderRadius: 22,
+    backgroundColor: '#D8F3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1A1A1A',
     marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
-    color: '#8E8E93',
-    fontSize: 15,
-    marginBottom: 36,
-  },
-  tabRow: {
-    flexDirection: 'row',
+    color: '#6B6B6B',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
     marginBottom: 24,
-    width: '100%',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#1C1C1E',
   },
-  tab: {
+  switcherCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    padding: 4,
+    marginBottom: 24,
+  },
+  tabButton: {
     flex: 1,
+    paddingVertical: 12,
     alignItems: 'center',
-    paddingBottom: 12,
+    borderRadius: 10,
   },
-  tabText: {
-    color: '#555',
+  tabButtonActive: {
+    backgroundColor: '#52B788',
+  },
+  tabButtonText: {
+    color: '#6B6B6B',
     fontSize: 15,
     fontWeight: '600',
   },
-  tabTextActive: {
+  tabButtonTextActive: {
     color: '#FFFFFF',
-  },
-  tabUnderline: {
-    position: 'absolute',
-    bottom: 0,
-    left: '20%',
-    right: '20%',
-    height: 2,
-    backgroundColor: '#7F77DD',
-    borderRadius: 1,
   },
   formCard: {
-    width: '100%',
-    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    padding: 22,
+    gap: 16,
   },
-  formTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    textAlign: 'center',
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7F7F5',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  inputIcon: {
+    marginRight: 12,
   },
   input: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 12,
-    color: '#FFFFFF',
+    flex: 1,
     fontSize: 15,
-    padding: 14,
-    borderWidth: 0,
+    color: '#1A1A1A',
   },
   primaryButton: {
-    backgroundColor: '#7F77DD',
+    backgroundColor: '#52B788',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     width: '100%',
-    marginTop: 4,
   },
   buttonDisabled: {
-    opacity: 0.6,
+    opacity: 0.65,
   },
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 4,
   },
   dividerLine: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#333',
+    backgroundColor: '#EBEBEB',
   },
   dividerText: {
-    color: '#555',
+    color: '#9A9A9A',
     fontSize: 13,
     marginHorizontal: 12,
   },
   googleButton: {
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#EBEBEB',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
-    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    marginRight: 10,
   },
   googleButtonText: {
-    color: '#FFFFFF',
+    color: '#1A1A1A',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   linkButton: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   linkText: {
-    color: '#7F77DD',
+    color: '#52B788',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  codeInput: {
+    width: '100%',
+    backgroundColor: '#F7F7F5',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    fontSize: 20,
+    letterSpacing: 16,
+    textAlign: 'center',
+    color: '#1A1A1A',
   },
 });
