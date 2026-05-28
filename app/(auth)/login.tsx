@@ -14,8 +14,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { useSignIn, useSignUp, useOAuth } from '@clerk/expo';
+import { useSSO } from '@clerk/expo';
+import { useSignIn, useSignUp } from '@clerk/expo/legacy';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+
+
+
+WebBrowser.maybeCompleteAuthSession();
 
 type Mode = 'signin' | 'signup';
 
@@ -23,7 +30,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
   const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
-  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
+  const { startSSOFlow } = useSSO();
 
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
@@ -33,7 +40,10 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleSignIn = async () => {
-    if (!signInLoaded) return;
+    if (!signInLoaded || !signIn) {
+      Alert.alert('Not ready', 'Auth is still loading, please wait.');
+      return;
+    }
     if (!email.trim() || !password.trim()) {
       Alert.alert('Missing fields', 'Please enter your email and password.');
       return;
@@ -59,7 +69,10 @@ export default function LoginScreen() {
   };
 
   const handleSignUp = async () => {
-    if (!signUpLoaded) return;
+    if (!signUpLoaded || !signUp) {
+      Alert.alert('Not ready', 'Auth is still loading, please wait.');
+      return;
+    }
     if (!email.trim() || !password.trim()) {
       Alert.alert('Missing fields', 'Please enter your email and password.');
       return;
@@ -81,7 +94,7 @@ export default function LoginScreen() {
   };
 
   const handleVerify = async () => {
-    if (!signUpLoaded) return;
+    if (!signUpLoaded || !signUp) return;
     if (!verificationCode.trim()) {
       Alert.alert('Missing code', 'Please enter the verification code from your email.');
       return;
@@ -105,18 +118,20 @@ export default function LoginScreen() {
     }
   };
 
+
   const handleGoogleSignIn = async () => {
     try {
-      const { createdSessionId, setActive } = await startOAuthFlow({
-        redirectUrl: 'interviewai://oauth-callback',
+      const { createdSessionId, setActive } = await startSSOFlow({
+        strategy: 'oauth_google',
+        redirectUrl: Linking.createURL('/'),
       });
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
         router.replace('/(tabs)');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      Alert.alert('Error', 'Google sign in failed.');
+      Alert.alert('Error', err?.message ?? 'Google sign in failed.');
     }
   };
 
