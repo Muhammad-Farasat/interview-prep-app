@@ -22,8 +22,8 @@
     "android": {
       "package": "com.interviewai.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#7F77DD"
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#1a1a2e"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
