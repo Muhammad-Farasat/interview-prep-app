@@ -5,10 +5,10 @@
     "scheme": "interviewai",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon.jpeg",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/interview_spalsh_screen.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -49,11 +49,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "28fd0d72-e4e7-4086-853b-32dc485ab604"
+        "projectId": "1de5cdaf-42d7-43d6-a2bc-09331d062957"
       }
     },
     "experiments": {
       "tsconfigPaths": true
-    }
+    },
+    "owner": "misstom"
   }
 }
