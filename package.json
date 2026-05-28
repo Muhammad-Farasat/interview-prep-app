@@ -9,7 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@clerk/expo": "^3.2.16",
+    "@clerk/expo": "^2.19.0",
     "@shopify/flash-list": "2.0.2",
     "@supabase/supabase-js": "^2.106.1",
     "axios": "^1.16.1",
