@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@clerk/expo": "^3.3.0",
+    "@clerk/react": "^6.7.2",
     "@shopify/flash-list": "2.0.2",
     "@supabase/supabase-js": "^2.106.1",
     "axios": "^1.16.1",
