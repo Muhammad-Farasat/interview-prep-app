@@ -16,13 +16,8 @@ import {
   Platform,
 } from 'react-native';
 
-const tips = [
-  'Use the STAR method: Situation, Task, Action, Result.',
-  'Pause before answering - it shows confidence, not weakness.',
-  'Mention metrics when possible. Numbers stand out.',
-  'Practice out loud, not just in your head.',
-  "It's okay to say 'I don't know, but here's how I'd approach it.'",
-];
+
+
 
 const fieldSuggestions = [
   'Frontend',
@@ -68,7 +63,40 @@ export default function HomeScreen() {
   const [questionCount, setQuestionCount] = useState<number>(5);
 
   const firstInitial = user?.firstName?.[0]?.toUpperCase() ?? 'U';
-  const tipOfTheDay = tips[new Date().getDay() % tips.length];
+
+  const [tipOfTheDay, setTipOfTheDay] = useState('Loading tip...');
+
+  useEffect(() => {
+    const generateTip = async () => {
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.EXPO_PUBLIC_GROQ_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'llama-3.1-8b-instant',
+            max_tokens: 80,
+            temperature: 0.9,
+            messages: [{
+              role: 'user',
+              content: 'Give me ONE concise, practical interview tip in 1 sentences. Be specific and actionable. No intro, just the tip.',
+            }],
+          }),
+        });
+        const data = await response.json();
+        const tip = data.choices?.[0]?.message?.content?.trim();
+        if (tip) setTipOfTheDay(tip);
+      } catch {
+        setTipOfTheDay('Use the STAR method: Situation, Task, Action, Result.');
+      }
+    };
+
+    generateTip();
+  }, []);
+
+  // const tipOfTheDay = tips[new Date().getDay() % tips.length];
   const recentSessions = sessions.slice(0, 3);
   const dropdownTop = (Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0) + 70;
   const trimmedFieldInput = fieldInput.trim();
@@ -119,6 +147,7 @@ export default function HomeScreen() {
       },
     });
   };
+  const name = user?.firstName ?? 'there';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -137,14 +166,15 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.greetingSection}>
-            <Text style={styles.greetingTitle}>Hey, {user?.firstName ?? 'there'} 👋</Text>
+            <Text style={styles.greetingTitle}>Hey, {name} 👋</Text>
             <Text style={styles.greetingSubtitle}>Ready for your next interview?</Text>
           </View>
 
           <View style={styles.tipCard}>
-            <Text style={styles.tipIcon}>💡</Text>
             <View style={styles.tipContent}>
-              <Text style={styles.tipLabel}>Tip of the day</Text>
+              <Text style={styles.tipLabel}>
+                <Text style={styles.tipIcon}>💡</Text>
+                Tip of the day</Text>
               <Text style={styles.tipText}>{tipOfTheDay}</Text>
             </View>
           </View>
@@ -162,21 +192,6 @@ export default function HomeScreen() {
               <Text style={styles.heroButtonText}>Start Interview</Text>
               <Feather name="arrow-right" size={16} color="#FFFFFF" style={styles.heroButtonIcon} />
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Feather name="mic" size={20} color="#52B788" />
-              <Text style={styles.statLabel}>Voice</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Feather name="cpu" size={20} color="#52B788" />
-              <Text style={styles.statLabel}>AI</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Feather name="bar-chart-2" size={20} color="#52B788" />
-              <Text style={styles.statLabel}>Track</Text>
-            </View>
           </View>
 
           <View style={styles.recentSection}>
@@ -197,7 +212,7 @@ export default function HomeScreen() {
                     <TouchableOpacity
                       key={session.id ?? `${field}-${index}`}
                       style={styles.sessionRow}
-                      onPress={() => {}}
+                      onPress={() => { }}
                       activeOpacity={0.85}
                     >
                       <View style={styles.sessionMain}>
@@ -409,7 +424,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tipIcon: {
-    fontSize: 22,
+    fontSize: 12,
     marginRight: 12,
   },
   tipContent: {
@@ -421,6 +436,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    display: 'flex',
   },
   tipText: {
     marginTop: 4,

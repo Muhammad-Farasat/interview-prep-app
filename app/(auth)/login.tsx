@@ -38,6 +38,8 @@ export default function LoginScreen() {
   const [verificationCode, setVerificationCode] = useState('');
   const [pendingVerification, setPendingVerification] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
 
   const handleSignIn = async () => {
     if (!signInLoaded || !signIn) {
@@ -82,6 +84,8 @@ export default function LoginScreen() {
       await signUp.create({
         emailAddress: email.trim(),
         password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
       });
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPendingVerification(true);
@@ -199,6 +203,19 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.formCard}>
+              {mode === 'signup' && (
+                <View style={styles.inputRow}>
+                  <Feather name="user" size={18} color="#6B6B6B" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="First name"
+                    placeholderTextColor="#ABABAB"
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    autoCapitalize="words"
+                  />
+                </View>
+              )}
               <View style={styles.inputRow}>
                 <Feather name="mail" size={18} color="#6B6B6B" style={styles.inputIcon} />
                 <TextInput

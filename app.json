@@ -5,7 +5,7 @@
     "scheme": "interviewai",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.jpeg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/interview_spalsh_screen.png",
